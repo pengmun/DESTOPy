@@ -6,7 +6,7 @@ Currently, only a single reduced-order density model (JB2008 reduced-order model
 Copyright &copy; 2021 by Peng Mun Siew and Richard Linares
 
 ## License
-The code is licensed under GNU General Public License version 3 - see the [LICENSE](https://github.com/pengmun/DESTOpy/blob/main/LICENSE) file for details.
+The code is licensed under GNU General Public License version 3 - see the [LICENSE](https://github.com/pengmun/DESTOPy/blob/main/LICENSE) file for details.
 
 ## Acknowledgments
 The python scripts are coded based on work taken from the Matlab [Density Estimation Toolbox (DESTO)](https://github.com/davidgondelach/DESTO) by David Gondelach and Richard Linares.
