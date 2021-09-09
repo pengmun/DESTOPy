@@ -44,12 +44,11 @@ see https://doi.org/10.1029/2019SW002356.
 ### Dependencies (partial list)
 * python
 * numpy
-* math
 * scipy
 * matplotlib
 * spiceypy
 * datetime
-* python-sgp4
+* sgp4
 * numba
 * multiprocessing
 * pickle
