@@ -50,8 +50,6 @@ see https://doi.org/10.1029/2019SW002356.
 * datetime
 * sgp4
 * numba
-* multiprocessing
-* pickle
 
 ## Installation instructions
 1. Download the DESTOPy python code.
