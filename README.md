@@ -50,6 +50,7 @@ see https://doi.org/10.1029/2019SW002356.
 * datetime
 * sgp4
 * numba
+* h5py
 
 ## Installation instructions
 1. Download the DESTOPy python code.
