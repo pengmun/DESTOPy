@@ -25,7 +25,7 @@ The toolbox also makes use of NASA's [SPICE toolkit (N66)](https://naif.jpl.nasa
 
 Some of the scripts also take advantage of [Numba](https://numba.pydata.org/numba-doc/dev/index.html) for faster computations.
 
-## Referemces
+## References
 The thermospheric density modeling and estimation techniques using Two-Line Element (TLE) sets are described in:
 ```
 @article{gondelach2020tle,
