@@ -9,6 +9,8 @@ Copyright &copy; 2021 by Peng Mun Siew and Richard Linares
 The code is licensed under GNU General Public License version 3 - see the [LICENSE](https://github.com/pengmun/DESTOPy/blob/main/LICENSE) file for details.
 
 ## Acknowledgments
+The code is developed based upon work supported by the National Science Foundation under award NSF-PHY-2028125.
+
 The python scripts are coded based on work taken from the Matlab [Density Estimation Toolbox (DESTO)](https://github.com/davidgondelach/DESTO) by David Gondelach and Richard Linares.
 
 The Jacchia-Bowman 2008 model was downloaded from the [ATMOS](https://github.com/lcx366/ATMOS) python package by Chunxiao Li.
