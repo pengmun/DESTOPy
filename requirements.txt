@@ -1,0 +1,8 @@
+numpy
+scipy
+matplotlib
+spiceypy
+datetime
+sgp4
+numba
+h5py

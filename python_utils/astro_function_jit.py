@@ -7,7 +7,7 @@ import spiceypy
 from scipy.interpolate import RegularGridInterpolator
 import h5py
 import os 
-from python_utils.rom_function import generateROM_JB2008
+from python_utils.rom_function import generateROM_JB2008 #, generateMLROM_JB2008, generateMLROM_JB2008_fullsw
 from python_utils.JB2008_subfunc import JB2008
 from scipy.integrate import ode
 from scipy import interpolate
@@ -15,8 +15,24 @@ from numba import jit
 import multiprocessing
 from functools import partial
 from contextlib import contextmanager
+from IPython.core.debugger import set_trace
+import time as timer
+import psutil
 
 os.environ["HDF5_USE_FILE_LOCKING"] = 'FALSE'
+
+def unstandard_data(xval,xdata_log10_mean,xdata_log10_std):
+    gt_2 = np.swapaxes(xval[:,:,:,:],1,3)
+    gt_data_unstandard = (gt_2*xdata_log10_std.reshape(45,90,25))+xdata_log10_mean.reshape(45,90,25) #2
+    return gt_data_unstandard
+
+def ML_standard_data(xdata,xdata_log10_mean,xdata_log10_std):
+    xdata_log10 = np.log(xdata)
+    xdata_standardized = (xdata_log10-xdata_log10_mean)/xdata_log10_std
+    xdata_reshaped = np.reshape(xdata_standardized,(45,90,25,xdata_standardized.shape[1])) #103404 for 2008, else 105192
+    xdata_reshaped = np.swapaxes(xdata_reshaped,0,3)
+    xdata_reshaped = np.swapaxes(xdata_reshaped,1,2)
+    return xdata_reshaped
 
 def from_jd(jd: float, fmt: str = 'jd') -> datetime:
     """
@@ -149,25 +165,25 @@ def inputSWnrlmsise(swfName):
     fid = open( swfName, 'r');
     lines = fid.readlines()
 
-    n_daily_obs = int(lines[17][20:25]);
+    n_daily_obs = int(lines[15][20:25]);
 
     SWaux = np.zeros((n_daily_obs, 11));
 
     for i in range (0,n_daily_obs):
 
-        SWaux[i, 0] = float(lines[19+i][93:98]); # F10.7 Daily
+        SWaux[i, 0] = float(lines[17+i][93:98]); # F10.7 Daily
 
-        SWaux[i, 1] = float(lines[19+i][101:106]); # F10.7 Average
+        SWaux[i, 1] = float(lines[17+i][101:106]); # F10.7 Average
 
-        SWaux[i, 2] = float(lines[19+i][79:82]); # Daily Magnetic index
+        SWaux[i, 2] = float(lines[17+i][79:82]); # Daily Magnetic index
 
-        SWaux[i, 3:11] = ([float(lines[19+i][46:50]),float(lines[19+i][50:54]),float(lines[19+i][54:58]),float(lines[19+i][58:62]),
-           float(lines[19+i][62:66]),float(lines[19+i][66:70]),float(lines[19+i][70:74]),float(lines[19+i][74:78])]); # Daily 3h APs
+        SWaux[i, 3:11] = ([float(lines[17+i][46:50]),float(lines[17+i][50:54]),float(lines[17+i][54:58]),float(lines[17+i][58:62]),
+           float(lines[17+i][62:66]),float(lines[17+i][66:70]),float(lines[17+i][70:74]),float(lines[17+i][74:78])]); # Daily 3h APs
 
         if SWaux[i, 0] == 0:
             SWaux[i, 0] = SWaux[i, 1];
 
-    idx = 19+i
+    idx = 17+i
 
     pdt_pnt = int(lines[idx+3][27:29]);
 
@@ -222,25 +238,25 @@ def inputSWtiegcm(swfName):
     fid = open( swfName, 'r');
     lines = fid.readlines()
 
-    n_daily_obs = int(lines[17][20:25]);
+    n_daily_obs = int(lines[15][20:25]);
 
     SWaux = np.zeros((n_daily_obs, 11));
 
     for i in range (0,n_daily_obs):
 
-        SWaux[i, 0] = float(lines[19+i][93:98]); # F10.7 Daily
+        SWaux[i, 0] = float(lines[17+i][93:98]); # F10.7 Daily
 
-        SWaux[i, 1] = float(lines[19+i][101:106]); # F10.7 Average
+        SWaux[i, 1] = float(lines[17+i][101:106]); # F10.7 Average
 
-#         SWaux[i, 2] = float(lines[19+i][79:82]); # Daily Magnetic index
+#         SWaux[i, 2] = float(lines[17+i][79:82]); # Daily Magnetic index
 
-        SWaux[i, 3:11] = np.asarray([float(lines[19+i][18:21]),float(lines[19+i][21:24]),float(lines[19+i][24:27]),float(lines[19+i][27:30]),
-           float(lines[19+i][30:33]),float(lines[19+i][33:36]),float(lines[19+i][36:39]),float(lines[19+i][39:42])])/10; # Daily 3h Kp
+        SWaux[i, 3:11] = np.asarray([float(lines[17+i][18:21]),float(lines[17+i][21:24]),float(lines[17+i][24:27]),float(lines[17+i][27:30]),
+           float(lines[17+i][30:33]),float(lines[17+i][33:36]),float(lines[17+i][36:39]),float(lines[17+i][39:42])])/10; # Daily 3h Kp
 
         if SWaux[i, 0] == 0:
             SWaux[i, 0] = SWaux[i, 1];
 
-    idx = 19+i
+    idx = 17+i
 
     pdt_pnt = int(lines[idx+3][27:29]);
 
@@ -304,10 +320,10 @@ def inputEOP_Celestrak_Full(EOPfilename):
     fid = open(EOPfilename, 'r');
     lines = fid.readlines()
 
-    nofObs = int(lines[34][20:25])
+    nofObs = int(lines[32][20:25])
 
     ## Read Earth Orientation Parameters
-    EOPMat = np.loadtxt(EOPfilename,skiprows=36,max_rows=nofObs)
+    EOPMat = np.loadtxt(EOPfilename,skiprows=34,max_rows=nofObs)
 
     return EOPMat.T
 
@@ -415,7 +431,7 @@ def inputEOP_Celestrak(EOPfilename):
     lines = file_EOP.readlines()
 
     # Read number of observed points
-    nofObs = int(lines[34][20:25])
+    nofObs = int(lines[32][20:25])
 
     # Initialize output
     EOPMat = np.zeros((nofObs,6));
@@ -424,22 +440,22 @@ def inputEOP_Celestrak(EOPfilename):
     for ind in range(1,nofObs+1):
 
         # Read PM-x
-        EOPMat[ind-1,0] = float(lines[35+ind][17:26]); # arcsec
+        EOPMat[ind-1,0] = float(lines[33+ind][17:26]); # arcsec
 
         # Read PM-y
-        EOPMat[ind-1,1] = float(lines[35+ind][27:36]); # arcsec
+        EOPMat[ind-1,1] = float(lines[33+ind][27:36]); # arcsec
 
         # Read UT1-UTC
-        EOPMat[ind-1,2] = float(lines[35+ind][37:47]);
+        EOPMat[ind-1,2] = float(lines[33+ind][37:47]);
 
         # Read length of day
-        EOPMat[ind-1,3] = float(lines[35+ind][48:58]);
+        EOPMat[ind-1,3] = float(lines[33+ind][48:58]);
 
         # Read dPsi
-        EOPMat[ind-1,4] = float(lines[35+ind][59:68]);  # arcsec
+        EOPMat[ind-1,4] = float(lines[33+ind][59:68]);  # arcsec
 
         # Read dEps
-        EOPMat[ind-1,5] = float(lines[35+ind][69:78]); # arcsec
+        EOPMat[ind-1,5] = float(lines[33+ind][69:78]); # arcsec
 
     EOPMat[np.isnan(EOPMat)] = 0;
     EOPMat[:,0:2] = EOPMat[:,0:2]/3600*np.pi/180; # rad
@@ -465,7 +481,7 @@ def loadSGP4():
     whichconst = 72;
     [tumin, mu, radiusearthkm, xke, j2, j3, j4, j3oj2] = getgravc(whichconst);
     return tumin, mu, radiusearthkm, xke, j2, j3, j4, j3oj2, opsmode, whichconst
-    
+
 def getgravc(whichconst):
     """
     Load gravitational constant
@@ -538,7 +554,9 @@ def getTLEsForEstimation(startYear, startMonth, startDay, endYear, endMonth, end
 
     TLE_satrecs_valid = defaultdict(list)
     TLE_jdsatepoch_valid = defaultdict(list)
+    
     for idx in range(0,len(selectedObjects)):
+        # print(selectedObjects[idx])
         tle_temp = TLE_satrecs.get(selectedObjects[idx])
         tle_jdsatepoch = []
         for idx2 in range(0,len(tle_temp)):
@@ -940,7 +958,10 @@ def generateObservationsMEE(objects,TLE_jdsatepoch,obsEpochs,GM_kms,EOPMat):
             # Observation epoch
             obsEpoch = obsEpochs[j];
             # Find nearest newer TLE
-            satrecIndex = np.where(TLE_jdsatepoch.get(key_list[i])>=obsEpoch)[1][0]
+            try:
+                satrecIndex = np.where(TLE_jdsatepoch.get(key_list[i])>=obsEpoch)[1][0]
+            except:
+                pass
             diffObsTLEEpochMinutes = (obsEpoch - objects.get(key_list[i])[0][satrecIndex].jdsatepoch) * 24*60;
 
             # Compute SGP4 state at epoch
@@ -1128,6 +1149,8 @@ def computeSWinputs_JB2008(jd0,jdf,eopdata,SOLdata,DTCdata,spice):
     nofPoints = len(tt);
 
     Inputs = np.zeros((24,nofPoints));
+#     Inputs = np.zeros((37,nofPoints));
+    y10_future = np.zeros((1,nofPoints));
     for i in range (0,nofPoints):
         # Date and time
         jdate = tt[i];
@@ -1187,6 +1210,39 @@ def computeSWinputs_JB2008(jd0,jdf,eopdata,SOLdata,DTCdata,spice):
     Inputs[22,:] = np.multiply(Inputs[11,:],Inputs[3,:]); # DSTDTC*F10 (now)
     Inputs[23,:] = np.multiply(Inputs[15,:],Inputs[16,:]); # DSTDTC*F10 (now+1hr)
 
+# # Full nonlinear Space Weather Indices
+#     Inputs[15,-1] = F10; # DSTDTC
+#     Inputs[16,-1] = S10; # F10
+#     Inputs[17,-1] = XM10; # S10
+#     Inputs[18,-1] = DSTDTC; # XM10
+#     y10_future[0,-1] = Y10; # Y10
+
+#     # and non-linear inputs (F10**2, DSTDTC**2) for current and future
+#     Inputs[19,:] = Inputs[3,:]**2
+#     Inputs[20,:] = Inputs[15,:]**2
+#     Inputs[21,:] = Inputs[5,:]**2
+#     Inputs[22,:] = Inputs[16,:]**2
+#     Inputs[23,:] = Inputs[7,:]**2
+#     Inputs[24,:] = Inputs[17,:]**2
+#     Inputs[25,:] = Inputs[11,:]**2
+#     Inputs[26,:] = Inputs[18,:]**2
+    
+#     # and non-linear cross terms (F10*M10, DSTDTC*M10) for current and future
+#     Inputs[27,:] = np.multiply(Inputs[3,:],Inputs[5,:])
+#     Inputs[28,:] = np.multiply(Inputs[15,:],Inputs[16,:])
+        
+#     Inputs[29,:] = np.multiply(Inputs[5,:],Inputs[7,:])
+#     Inputs[30,:] = np.multiply(Inputs[16,:],Inputs[17,:])
+    
+#     Inputs[31,:] = np.multiply(Inputs[5,:],Inputs[11,:])
+#     Inputs[32,:] = np.multiply(Inputs[16,:],Inputs[18,:])
+    
+#     Inputs[33,:] = np.multiply(Inputs[7,:],Inputs[11,:])
+#     Inputs[34,:] = np.multiply(Inputs[17,:],Inputs[18,:])
+    
+#     Inputs[35,:] = np.multiply(Inputs[9,:],Inputs[11,:])
+#     Inputs[36,:] = np.multiply(y10_future[0,:],Inputs[18,:])
+    
     return Inputs
 
 def generateROMdensityModel(ROMmodel,r,jd0,jdf,spice):
@@ -1250,6 +1306,115 @@ def generateROMdensityModel(ROMmodel,r,jd0,jdf,spice):
     BC = PhiC[:r,r:]/3600;
 
     return AC,BC,Uh,F_U,Dens_Mean,M_U,SLTm,LATm,ALTm,maxAtmAlt,SWinputs,Qrom
+
+def generateMLROMdensityModel(ROMmodel,r,jd0,jdf,spice):
+    """
+    Generate reduced-order density model
+    
+    """
+    TA = {}
+    f = h5py.File('ROMDensityModels/JB2008_1999_2010_ROM_r100.mat','r')
+    for k, v in f.items():
+        TA[k] = np.array(v).T
+
+    # Compute reduced-order dynamic density model:
+    # PhiC contains continuous-time dynamic and input matrices
+    # Uh contains the POD spatial modes
+    # Qrom is the covariance matrix of ROM prediction error
+#     PhiC, encoder_model, decoder_model, Qrom = generateMLROM_JB2008_fullsw(TA,r);
+    PhiC, encoder_model, decoder_model, Qrom = generateMLROM_JB2008(TA,r);
+    
+
+    # Compute the space weather inputs in the estimation period
+    # Read Earth orientation parameters
+    eopdata = inputEOP_Celestrak_Full('Data/EOP-All.txt');
+
+    # Read space weather data: solar activity indices
+    SOLdata = readSOLFSMY('Data/SOLFSMY.txt');
+
+    # Read geomagnetic storm DTC values
+    DTCdata = readDTCFILE('Data/DTCFILE.txt');
+    SWinputs = computeSWinputs_JB2008(jd0,jdf+1,eopdata,SOLdata,DTCdata,spice);
+
+    # Maximum altitude of ROM-JB2008 density model (for higher altitudes
+    # density is set to zero)
+    maxAtmAlt = 800;
+
+    # Setup of ROM Modal Interpolation
+    sltm = TA['localSolarTimes'][0];
+    latm = TA['latitudes'][0];
+    altm = TA['altitudes'][0];
+    n_slt = len(sltm);
+    n_lat = len(latm);
+    n_alt = len(altm);
+
+    # # Mean density
+    # Dens_Mean = TA['densityDataMeanLog'];
+
+    # Generate full 3D grid in local solar time, latitude and altitude
+    [SLTm,LATm,ALTm]=np.meshgrid(sltm,latm,altm);
+
+    # Compute dynamic and input matrices
+    AC = PhiC[:r,:r]/3600;
+    BC = PhiC[:r,r:]/3600;
+
+    return AC,BC,encoder_model,decoder_model,SLTm,LATm,ALTm,maxAtmAlt,SWinputs,Qrom
+
+def generateMLROMdensityModel_GITM(ROMmodel,r,jd0,jdf,spice):
+    """
+    Generate reduced-order density model
+    
+    """
+    from tensorflow import keras
+    from tensorflow.keras.models import Model
+    from tensorflow.keras.layers import Input
+    import tensorflow as tf
+    
+    tf.compat.v1.disable_eager_execution()
+#     tf.config.threading.set_intra_op_parallelism_threads(1)
+#     tf.config.threading.set_inter_op_parallelism_threads(1)
+    tf.get_logger().setLevel('ERROR')
+    
+    # load encoder and decoder
+    model_path = 'Model/GITM_v5'
+    
+    model = keras.models.load_model(model_path)
+    encoder_model = Model(inputs=model.input, outputs=model.layers[13].output)
+    # encoder_model.summary()
+
+    decode_input = Input(model.layers[14].input_shape[1:])
+    decoder_model = decode_input
+    for layer in model.layers[14:]:
+        decoder_model = layer(decoder_model)
+    decoder_model = Model(inputs=decode_input, outputs=decoder_model)
+    # decoder_model.summary()
+    
+    # Load reduced-order model files
+    GTIM_rom_data = np.load('Model/GITM_rom.npz')
+    
+    # PhiC contains continuous-time dynamic and input matrices
+    PhiC = GTIM_rom_data["PhiC"]
+    
+    # Qrom is the covariance matrix of ROM prediction error
+    Qrom = GTIM_rom_data["Qrom"]
+    
+    # Generate full 3D grid in local solar time, latitude and altitude
+    SLTm = GTIM_rom_data["SLTm"]
+    LATm = GTIM_rom_data["LATm"]
+    ALTm = GTIM_rom_data["ALTm"]
+    
+    # Load SW input for August
+    SWinputs = GTIM_rom_data["SWinputs"]
+    
+    # Maximum altitude of ROM-JB2008 density model (for higher altitudes
+    # density is set to zero)
+    maxAtmAlt = 800;
+
+    # Compute dynamic and input matrices
+    AC = PhiC[:r,:r]/3600;
+    BC = PhiC[:r,r:]/3600;
+
+    return AC,BC,encoder_model,decoder_model,SLTm,LATm,ALTm,maxAtmAlt,SWinputs,Qrom
 
 def getDensityJB2008llajd(lon,lat,alt,jdate,eopdata,SOLdata,DTCdata,spice):
     """
@@ -1568,8 +1733,90 @@ def getDensityROM(pos,jdate,romState,r,F_U,M_U,maxAtmAlt):
     # Density
     rho = 10**(np.sum(UhI.T*romState,0)+MI.T);
     rho[alt>maxAtmAlt] = 0;
+#     set_trace()
     
     return rho
+
+def getDensityROM_ml(pos,jdate,romState,r,decoder_model,maxAtmAlt,xdata_log10_mean,xdata_log10_std):
+    """
+    Compute density using reduced-order density model
+    Based on Matlab code by David Gondelach, Massachusetts Institute of Technology, 2020
+    
+    Inputs:
+    _______
+        pos         position vectors in J2000
+        jdate       Julian date
+        romState    reduced-order density state
+        r           number of reduced order modes [integer]
+        F_U         interpolant of gridded reduced-order modes
+        M_U         interpolant of gridded mean density
+        maxAtmAlt   maximum altitude of ROM density model
+        
+    Outputs:
+    _______
+        rho         densities at positions giving by pos
+    
+    """
+
+    # Number of position vectors
+    n = pos.shape[1];
+
+    # Date and time
+    # [yy, mm, dd, hh, mnmn, ss] = datevec(jdate-1721058.5); # Year, month, day, hour, minute, seconds in UTC
+    # UThrs = hh + mnmn/60 + ss/3600; # Hour of day in UTC
+    dt_jdf = from_jd(np.ceil(round(jdate * 1e7,7))/ 1e7);  # End date of TLE collection window 
+    yy = dt_jdf.year
+    mm = dt_jdf.month
+    dd = dt_jdf.day
+    hh = dt_jdf.hour
+    mnmn = dt_jdf.minute
+    ss = dt_jdf.second
+
+    UThrs = hh + mnmn/60 + ss/3600; # Hour of day in UTC
+
+    # # Convert ECI position to longitude, latitude and altitude
+    lon,lat,alt,_,_=gc2gd(pos.T,yy,mm,dd,hh,mnmn,ss,0,0,0);
+    lon = (lon+180)%360-180
+
+    # Local solar time
+    lst = UThrs+lon/15;
+    lst[lst>24] = lst[lst>24]-24;
+    lst[lst<0] = lst[lst<0]+24;
+    
+    x1_dec = decoder_model.predict(romState[:,0:1].T) #decoder_model.predict(romState.T)
+    rho_log_field = unstandard_data(x1_dec,xdata_log10_mean,xdata_log10_std)
+    rho_field = 10**(rho_log_field)
+    
+    # # For JB2008
+    # sltm = np.linspace(0,24,24)
+    # latm = np.linspace(-87.5,87.5,20)
+    # altm = np.linspace(100,800,36)
+    
+    # For GITM
+    # sltm = np.linspace(0,24,24)
+    # latm = np.linspace(-87.5,87.5,20)
+    # altm = np.linspace(100,800,36)
+    localSolarTimes = np.linspace(2,358,90)/360*24 #np.linspace(0,24,24)
+    latitudes = np.linspace(-89.5,89.5,180) #np.linspace(-87.5,87.5,20)
+    altitudes = np.array([100000., 101565., 103150., 104772., 106450., 108205., 110066.,
+           112067., 114258., 116712., 119526., 122832., 126729., 131182.,
+           136223., 141881., 148174., 155108., 162682., 170884., 179696.,
+           189097., 199061., 209559., 220565., 232050., 243985., 256344.,
+           269096., 282214., 295667., 309427., 323463., 337747., 352249.,
+           366944., 381805., 396809., 411937., 427169., 442489., 457882.,
+           473338., 488846., 504397., 519984., 535600., 551242., 566903.,
+           582582.]) #np.linspace(100,800,36)
+    sltm = localSolarTimes[::2]
+    latm = latitudes[::2]
+    altm = altitudes[::2]
+
+    rho_fn = RegularGridInterpolator((sltm, latm, altm), rho_field[0,:,:,:], bounds_error=False,fill_value=None);
+    rho = rho_fn((lst,lat,alt));
+    
+    rho[alt>maxAtmAlt] = 0;
+
+    return rho
+
 
 @jit(nopython=True,cache=True)
 def AccelPointMass_jit(r, s, GM):
@@ -1751,13 +1998,14 @@ def computeDerivative_PosVelBcRom(t,xp,AC,BC,SWinputs,r,noo,svs,F_U,M_U,maxAtmAl
 
     # Compute accelerations per object
     # Extract out RSO states
-    a = np.arange(x.shape[0])
-    b = np.lib.stride_tricks.as_strided(a, (noo,3), (8*7,8))
+    a = np.reshape(np.arange(noo*7),(noo,-1))
+    b = a[:,:3]
+    
     x2 = x[b].transpose(1, 0, 2).reshape(3,-1)
     rho = getDensityROM(x2,jdate,romState_rep,r,F_U,M_U,maxAtmAlt).reshape(noo,-1);
 
     # Ballistic coefficients (BC) [m^2/(1000kg)]
-    b_star = x[svs-1:-svs:svs,:]
+    b_star = x[svs-1:-r:svs,:]
 
     # BC * density * velocity
     BCrhoV = np.reshape(b_star*rho,(1,-1), order = 'F') * mag_v_ecef;
@@ -1799,6 +2047,144 @@ def computeDerivative_PosVelBcRom(t,xp,AC,BC,SWinputs,r,noo,svs,F_U,M_U,maxAtmAl
         f = moon_sun_perturb_hf_jit(x, svs, noo, n, rr_Sun, rr_Moon, f, AC, romState, r, BC, SWinputs, Re)
 
     return f.flatten()
+
+
+def computeDerivative_PosVelBcRom_ml(t,xp,AC,BC,SWinputs,r,noo,svs,decoder_model,maxAtmAlt,et0,jdate0,highFidelity,GM, Re, C_gravmodel, S_gravmodel, gravdegree, sF_gravmod,xdata_log10_mean,xdata_log10_std):
+    """
+    Computes the derivatives of objects position, velocity and BC, and reduced-order state
+    
+    Inputs:
+    _______
+        t           current time: seconds since et0 [s]
+        xp          state vector: position and velocity (J2000) and BC of
+                    multiple objects and reduced order density state
+        AC          continuous-time state transition matrix for the reduced
+                    order density state
+        BC          continuous-time input matrix for the reduced order density
+                    state dynamics
+        SWinputs    Space weather inputs
+        r           number of reduced order modes [integer]
+        noo         number of objects [integer]
+        svs         state size per object [integer]
+        F_U         interpolant of gridded reduced-order modes
+        M_U         interpolant of gridded mean density
+        maxAtmAlt   maximum altitude of ROM density model
+        et0         initial ephemeris time (seconds since J2000 epoch)
+        jdate0      initial Julian date
+     
+    Outputs:
+    _______
+        f          Time derivative of xp: dxp/dt
+        
+    Based on Matlab code by David Gondelach, Massachusetts Institute of Technology, 2020
+    
+    """
+#     ## LOAD KERNELS, GRAVITY MODEL, EARTH ORIENTATION PARAMETERS AND SGP4
+#     # Load SPICE kernels and ephemerides
+#     spiceypy.kclear()
+#     spiceypy.furnsh("Data/kernel.txt")
+
+    # Convert state from single column to multi-column matrix
+    x = np.reshape(xp,(svs*noo+r,-1), order='F');
+
+    n = x.shape[1]
+
+    # Date and time
+    et = et0 + t; # Ephemeris time
+    jdate = jdate0 + t / 86400; # Julian date
+
+    # Space weather inputs for current time
+    SWinputs_fn = interpolate.interp1d(SWinputs[0,:], SWinputs[1:,:])
+    SWinputs = SWinputs_fn(jdate)
+
+    # State derivative f=dx/dt
+    f=np.zeros_like(x)
+
+    # J2000 to ECEF transformation matrix
+    xform = spiceypy.spiceypy.sxform('J2000', 'ITRF93', et ); # J2000 to ECEF transformation matrix
+
+    # Object states in ECI
+    x_eci = np.reshape(x[:-r,:],(svs,-1), order='F');
+    # Object states in ECEF
+    x_ecef = xform@x_eci[0:6,:]; # State in ECEF
+    rr_ecef = x_ecef[0:3,:]; # Position in ECEF
+    vv_ecef = x_ecef[3:6,:]; # Velocity in ECEF
+    mag_v_ecef = np.sqrt( np.sum( vv_ecef**2, 0 )); # Magnitude of velocity in ECEF
+
+    # Gravitational accelerations in ECEF [m/s^2]
+    nofStates = rr_ecef.shape[1];
+    partSize = 600;
+    nofParts = int(np.floor( nofStates / partSize ));
+    aa_grav_ecef_x = np.zeros((nofStates,1));
+    aa_grav_ecef_y = np.zeros((nofStates,1));
+    aa_grav_ecef_z = np.zeros((nofStates,1));
+
+    for i in range(0,nofParts):
+        aa_grav_ecef_x[(i)*partSize:(i+1)*partSize,0], aa_grav_ecef_y[(i)*partSize:(i+1)*partSize,0], aa_grav_ecef_z[(i)*partSize:(i+1)*partSize,0] = \
+            computeEarthGravitationalAcceleration_jit(rr_ecef[:,(i)*partSize:(i+1)*partSize].T*1000, GM, Re, C_gravmodel, S_gravmodel, gravdegree, sF_gravmod);
+
+    aa_grav_ecef_x[nofParts*partSize:,0], aa_grav_ecef_y[nofParts*partSize:,0], aa_grav_ecef_z[nofParts*partSize:,0] = \
+            computeEarthGravitationalAcceleration_jit(rr_ecef[:,nofParts*partSize:].T*1000, GM, Re, C_gravmodel, S_gravmodel, gravdegree, sF_gravmod);
+
+    # Gravitational accelerations in ECI [km/s^2]
+    aa_grav_eci = xform[:3,:3].T @ np.vstack((np.vstack((aa_grav_ecef_x.T, aa_grav_ecef_y.T)), aa_grav_ecef_z.T)) / 1000;
+
+    # Reduced order density state
+    romState = x[-r:,:];
+    romState_rep = np.repeat(romState.T.reshape(-1,1),noo,axis = 1).T.reshape(-1,r).T
+
+    # Compute accelerations per object
+    # Extract out RSO states
+    a = np.reshape(np.arange(noo*7),(noo,-1))
+    b = a[:,:3]
+    
+    x2 = x[b].transpose(1, 0, 2).reshape(3,-1)
+    rho = getDensityROM_ml(x2,jdate,romState_rep,r,decoder_model,maxAtmAlt,xdata_log10_mean,xdata_log10_std).reshape(noo,-1);
+
+    # Ballistic coefficients (BC) [m^2/(1000kg)]
+    b_star = x[svs-1:-r:svs,:]
+
+    # BC * density * velocity
+    BCrhoV = np.reshape(b_star*rho,(1,-1), order = 'F') * mag_v_ecef;
+
+    # Drag accelerations in ECEF [km/s^2]
+    aa_drag_ecef = np.zeros_like(vv_ecef)
+    aa_drag_ecef[0,:] = - 1/2*BCrhoV*vv_ecef[0,:]; # ECEF x-direction
+    aa_drag_ecef[1,:] = - 1/2*BCrhoV*vv_ecef[1,:]; # ECEF y-direction
+    aa_drag_ecef[2,:] = - 1/2*BCrhoV*vv_ecef[2,:]; # ECEF z-direction
+
+    # Drag accelerations in ECI [km/s^2]
+    aa_drag_eci = xform[:3,:3].T @ aa_drag_ecef;
+
+    # Total accelerations in ECI [km/s^2]
+    aa_grav_drag_eci = np.reshape(aa_grav_eci + aa_drag_eci, (3*noo,n), order = 'F');
+
+    # Time derivatives of position and velocity due to velocity and gravity and drag accelerations
+    b_flat = b.flatten()
+    c = np.arange(aa_grav_drag_eci.shape[0])
+    # Velocities in J2000 frame [km/s]
+    f[b_flat,:] = x[b_flat+3,:]
+    f[b_flat+3,:] = aa_grav_drag_eci[c,:]
+
+    # Time derivative of ballistic coefficients is zero
+    f[6:svs:-r,:] = 0;
+
+    # If high fidelity, add Sun, Moon and SRP perturbations
+    if highFidelity:
+
+        ### Compute Sun Moon ###
+        # Sun position in J2000 ref frame
+        rr_Sun = spiceypy.spiceypy.spkezr('Sun',et,'J2000','NONE', 'Earth');
+        rr_Sun = rr_Sun[0][0:3];
+
+        # Moon position in J2000 ref frame
+        rr_Moon = spiceypy.spiceypy.spkezr('Moon',et,'J2000','NONE', 'Earth');
+        rr_Moon = rr_Moon[0][0:3];
+        
+        f = moon_sun_perturb_hf_jit(x, svs, noo, n, rr_Sun, rr_Moon, f, AC, romState, r, BC, SWinputs, Re)
+
+    return f.flatten()
+
 
 @jit(nopython=True,cache=True)
 def computeEarthGravitationalAcceleration_jit( rr_ecef, GM, Re, C, S, gravdegree, sF_gravmod):
@@ -1988,7 +2374,8 @@ def propagateState_MeeBcRom( x0_mee,t0,tf,AC,BC,SWinputs,r,nop,svs,F_U,M_U,maxAt
 
     mu = 398600.4415;
 
-    xx_pv = np.copy(x0_mee);
+#     xx_pv = np.copy(x0_mee);
+    xx_pv = np.array(x0_mee);
     for k in range (0,nop):
         for j in range (0,x0_mee.shape[1]):
             pos,vel = ep2pv_jit(x0_mee[(k)*svs:(k)*svs+6,j],mu);
@@ -1998,6 +2385,55 @@ def propagateState_MeeBcRom( x0_mee,t0,tf,AC,BC,SWinputs,r,nop,svs,F_U,M_U,maxAt
     # use adams ode to solve for xf
     ode_ope = ode(computeDerivative_PosVelBcRom).set_integrator('vode',atol = 1e-10, rtol = 1e-10, method='adams')
     ode_ope.set_initial_value(xx_pv.flatten(), t0).set_f_params(AC,BC,SWinputs,r,nop,svs,F_U,M_U,maxAtmAlt,et0,jdate0,highFidelity,GM, Re, C_gravmodel, S_gravmodel, gravdegree, sF_gravmod)
+    xf_out = ode_ope.integrate(tf)
+    xf_pv = xf_out.reshape((nop*svs+r,-1))
+
+    xf_mee = xf_pv;
+    for k in range(0,nop):
+        for j in range (0,xf_pv.shape[1]):
+            pos = xf_pv[svs*(k):svs*(k)+3,j];
+            vel = xf_pv[svs*(k)+3:svs*(k)+6,j];
+            xf_mee[(k)*svs:(k)*svs+6,j] = pv2ep_jit(pos,vel,mu).T;
+
+        # Make sure the difference in true longitude L of the sigma points wrt
+        # the nominal true longitude L0 is minimal (i.e. L-L0 <= pi)
+        # If the nominal true longitude L0 is close to pi (i.e. pi/2<L0 or L0<-pi/2) then wrap 
+        # all L to [0,2pi] domain, so all difference in L <=pi (by default L is
+        # on [-pi,pi] domain).
+        if ((xf_mee[(k)*svs+5,0] > np.pi/2) | (xf_mee[(k)*svs+5,0] < -np.pi/2)):
+            xf_mee[(k)*svs+5,:] = wrapTo2Pi(xf_mee[(k)*svs+5,:]);
+
+    return xf_mee
+
+def propagateState_MeeBcRom_ml( x0_mee,t0,tf,AC,BC,SWinputs,r,nop,svs,decoder_model,maxAtmAlt,et0,jdate0,highFidelity,GM,Re,C_gravmodel,S_gravmodel,gravdegree,sF_gravmod,xdata_log10_mean,xdata_log10_std):
+    """
+    Propagate objects and ROM density
+    
+    # Convert state in modified equinoctial elements to Cartesian coordinates
+    # propagate states and reduced-order density and convert Cartesian states
+    # back to modified equinoctial elements.
+    
+    Based on Matlab code by David Gondelach, Massachusetts Institute of Technology, 2020
+    
+    """
+    x0_mee = x0_mee.reshape((nop*svs+r,-1))
+
+    if tf == t0:
+        return x0_mee
+
+    mu = 398600.4415;
+
+#     xx_pv = np.copy(x0_mee);
+    xx_pv = np.array(x0_mee);
+    for k in range (0,nop):
+        for j in range (0,x0_mee.shape[1]):
+            pos,vel = ep2pv_jit(x0_mee[(k)*svs:(k)*svs+6,j],mu);
+            xx_pv[k*svs+0:k*svs+3,j] = pos;
+            xx_pv[k*svs+3:k*svs+6,j] = vel;
+    # set_trace()
+    # use adams ode to solve for xf
+    ode_ope = ode(computeDerivative_PosVelBcRom_ml).set_integrator('vode',atol = 1e-10, rtol = 1e-10, method='adams')
+    ode_ope.set_initial_value(xx_pv.flatten(), t0).set_f_params(AC,BC,SWinputs,r,nop,svs,decoder_model,maxAtmAlt,et0,jdate0,highFidelity,GM, Re, C_gravmodel, S_gravmodel, gravdegree, sF_gravmod,xdata_log10_mean,xdata_log10_std)
     xf_out = ode_ope.integrate(tf)
     xf_pv = xf_out.reshape((nop*svs+r,-1))
 
@@ -2110,8 +2546,8 @@ def UKF(X_est,Meas,time,P,RM,Q,nop,svs,r, AC, BC, SWinputs, F_U, M_U, maxAtmAlt,
         # Time Update
         with poolcontext(processes=multiprocessing.cpu_count()-1 or 1) as pool:
             Xp = pool.map(partial(propagateState_MeeBcRom, t0=time[i], tf=time[i+1], AC=AC, BC=BC, SWinputs=SWinputs, r=r, nop=nop, svs=svs, F_U=F_U, M_U=M_U,maxAtmAlt=maxAtmAlt,et0=et0,jdate0=jd0,highFidelity=highFidelity,GM=GM, Re=Re, C_gravmodel=C_gravmodel, S_gravmodel=S_gravmodel, gravdegree=gravdegree, sF_gravmod=sF_gravmod), xx.T)
-
         Xp = np.squeeze(np.asarray(Xp).T)
+
 
         X_est_temp[:,i+1] = np.real(Wm[0,0] * Xp[:,0] + Wm[0,1] * np.sum(Xp[:,1:],axis=1));
 
@@ -2149,11 +2585,112 @@ def UKF(X_est,Meas,time,P,RM,Q,nop,svs,r, AC, BC, SWinputs, F_U, M_U, maxAtmAlt,
         KG = mrdivide(np.real(mrdivide(Pxy,S_y.T)),S_y); # [nofStates x nofMeas]
         X_est_temp[:,i+1] = X_est_temp[:,i+1] + KG@yres;
         U = KG@S_y;
-        S = np.copy(S_minus); # [nofStates x nofStates]
+#         S = np.copy(S_minus); # [nofStates x nofStates]
+        S = np.array(S_minus); # [nofStates x nofStates]
         for j in range(0,len(ym)):
             S = cholupdate_jit(S.T,U[:,j],'-').T;
 
         HH[:,:,i+1] = (np.linalg.pinv(S@S.T)@KG@RM).T;
         Pv[:,i+1] = np.diag(S@S.T).T;
+        
+        if i % 3 == 0: 
+            np.savez('est_variable_temp_pod_AMOS_21Obj_22_2_1.npz',X_est_temp=X_est_temp,Pv=Pv)
+
+    return X_est_temp,Pv
+
+def UKF_ml(X_est,Meas,time,P,RM,Q,nop,svs,r, AC, BC, SWinputs, decoder_model, maxAtmAlt, et0, jd0, highFidelity, GM, Re, C_gravmodel,S_gravmodel, gravdegree, sF_gravmod,xdata_log10_mean,xdata_log10_std):
+    """
+    Unscented Kalman Filter to propagate space object and predicted thermospheric mass density
+    
+    Based on Matlab code by David Gondelach, Massachusetts Institute of Technology, 2020
+    
+    """
+
+    # Unscented Filter Parameter
+    # Compute the Sigma Points
+    Wm,Wc,L,lam = Unscented_Transform(X_est)
+
+    SR_Wc = np.sqrt(Wc); 
+    SR_Wm = np.sqrt(Wm);
+
+    S= np.linalg.cholesky(P).T;
+    SR_R = np.sqrt(RM); # measurement noise
+    SR_Q = np.sqrt(Q); # process noise
+    eta = np.sqrt(L+lam);
+
+    useMEE = True;
+
+    m = Meas.shape[1];
+    
+    # Preallocate variables
+    X_est_temp = np.zeros((nop*svs+r,m-1+1))
+    HH = np.zeros((Meas.shape[0],nop*svs+r,m-1+1))
+    Pv = np.zeros((nop*svs+r,m-1+1))
+
+    X_est_temp[:,0:1] = X_est
+    
+    mu = 398600.4415
+    
+    # Precompile jit
+    EP_temp = np.ones((6,))
+    rr_temp, vv_temp = ep2pv_jit(EP_temp, mu)
+    EP_temp = pv2ep_jit(rr_temp, vv_temp, mu)
+    
+    for i in range (0,m-1): # (0,m-1):
+        print('Hour ',i, m-1)
+        sigv = np.real(np.hstack((eta*S, -eta*S)));
+        xx = np.hstack((X_est_temp[:,i].reshape(-1,1), (sigv+np.kron(X_est_temp[:,i].reshape(-1,1),np.ones((1,2*L))))))
+
+        Xp= np.zeros_like(xx)    
+        for ik_xp in range(xx.shape[1]):
+
+            Xp[:,ik_xp] = propagateState_MeeBcRom_ml(xx[:,ik_xp],t0=time[i], tf=time[i+1], AC=AC, BC=BC, SWinputs=SWinputs, r=r, nop=nop, svs=svs, decoder_model=decoder_model, maxAtmAlt=maxAtmAlt,et0=et0,jdate0=jd0,highFidelity=highFidelity,GM=GM, Re=Re, C_gravmodel=C_gravmodel, S_gravmodel=S_gravmodel, gravdegree=gravdegree, sF_gravmod=sF_gravmod,xdata_log10_mean=xdata_log10_mean,xdata_log10_std=xdata_log10_std).flatten()
+
+        X_est_temp[:,i+1] = np.real(Wm[0,0] * Xp[:,0] + Wm[0,1] * np.sum(Xp[:,1:],axis=1));
+
+        # Get Propagated Square Root
+        _,S_minus = np.linalg.qr(np.hstack(((SR_Wc[0,1]*(Xp[:,1:]-np.kron(X_est_temp[:,i+1:i+2],np.ones((1,2*L))))), SR_Q)).T)
+        S_minus = cholupdate_jit(np.real(S_minus),np.real(Wc[0,0]*(Xp[:,0]-X_est_temp[:,i+1])),'+').T
+
+        # Measurement function
+        Ym = fullmee2mee(Xp,nop,svs); # [nofMeas x nofSigma]
+        ym = np.real(Wm[0,0] * Ym[:,0] + Wm[0,1] * np.sum(Ym[:,1:],axis = 1)); # [nofMeas x 1]
+
+        DY = Ym[:,0]-ym; # [nofMeas x 1]
+        DY2 = Ym[:,1:]-np.kron(ym.reshape(-1,1),np.ones((1,2*L)));
+
+        if useMEE:
+            DY[5::6] = wrapToPi(DY[5::6]); # Wrap difference in true longitude to [-pi,pi]
+            DY2[5::6] = wrapToPi(DY2[5::6]); # Wrap difference in true longitude to [-pi,pi]
+
+        # Measurement Update
+        _,S_y = np.linalg.qr(np.hstack(((SR_Wc[0,1]*DY2), SR_R)).T)
+        S_y = cholupdate_jit(np.real(S_y),np.real(Wc[0,0]*DY),'+').T
+
+        # Calculate Pxy
+        Pxy0 = np.real(Wc[0,0]*np.outer(Xp[:,0]-X_est_temp[:,i+1],DY.T)); # [nofStates x nofMeas]
+        Pyymat = DY2;
+        Pmat = Xp[:,1:]-np.kron(X_est_temp[:,i+1:i+2],np.ones((1,2*L))); # [nofStates x nofSigma-1]
+        Pxy = Pxy0+Wc[0,1]*(Pmat@Pyymat.T); # [nofStates x nofMeas]
+
+        # Measurement residual
+        yres = Meas[:,i+1]-ym; # [nofMeas x 1]
+        if useMEE:
+            yres[5::6] = wrapToPi(yres[5::6]); # Wrap difference in true longitude to [-pi,pi]
+
+        # Gain and Update
+        KG = mrdivide(np.real(mrdivide(Pxy,S_y.T)),S_y); # [nofStates x nofMeas]
+        X_est_temp[:,i+1] = X_est_temp[:,i+1] + KG@yres;
+        U = KG@S_y;
+
+        S = np.array(S_minus); # [nofStates x nofStates]
+        for j in range(0,len(ym)):
+            S = cholupdate_jit(S.T,U[:,j],'-').T;
+
+        HH[:,:,i+1] = (np.linalg.pinv(S@S.T)@KG@RM).T;
+        Pv[:,i+1] = np.diag(S@S.T).T;
+
+        if i % 2 == 0: #est_variable_mlv2_fullsw_AMOS_22_2_1
+            np.savez('est_variable_temp_ICIAM_6obj_2013_0Q_01RM_v2.npz',X_est_temp=X_est_temp,Pv=Pv)
 
     return X_est_temp,Pv
