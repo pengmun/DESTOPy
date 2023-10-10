@@ -6,7 +6,7 @@ Currently, only a single reduced-order density model (JB2008 reduced-order model
 Copyright &copy; 2021 by Peng Mun Siew and Richard Linares
 
 ## License
-The code is licensed under GNU General Public License version 3 - see the [LICENSE](https://github.com/pengmun/DESTOPy/blob/main/LICENSE) file for details.
+The code is licensed under the MIT License - see the [LICENSE](https://github.com/pengmun/DESTOPy/blob/main/LICENSE) file for details.
 
 ## Acknowledgments
 The code is developed based upon work supported by the National Science Foundation under award NSF-PHY-2028125.
@@ -56,7 +56,7 @@ see https://doi.org/10.1029/2019SW002356.
 
 ## Installation instructions
 1. Download the DESTOPy python code.
-2. Install the necessary dependencies.
+2. Install the necessary dependencies by running 'pip install -r requirements.txt'.
 3. Download SPICE kernels (i.e. ephemeris files) from https://naif.jpl.nasa.gov/pub/naif/generic_kernels/ and put them in the folder Data. See **Ephemeris files** section below.
 4. Download space weather file from Celestrak and put in folder Data: https://www.celestrak.com/SpaceData/SW-All.txt
 5. Download Earth orientation data file from Celestrak and put in folder Data: https://www.celestrak.com/SpaceData/EOP-All.txt
@@ -78,6 +78,6 @@ Download the following ephemeris files and put them in the Data folder:
 * earthstns_itrf93_201023.bsp: https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/stations/
 * pck00010.tpc, earth_fixed.tf, earth_200101_990628_predict.bpc, earth_000101_210530_210308.bpc, earth_720101_070426.bpc, earth_latest_high_prec.bpc: https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/
 
-Python 3.7 was used to develop the code.
+Python 3.7 was used to develop the code and was tested on Python 3.11.
 
-Peng Mun Siew, Jun 2021 email: siewpm@mit.edu
+Peng Mun Siew, Oct 2023 email: siewpm@mit.edu
