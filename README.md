@@ -72,7 +72,7 @@ see https://doi.org/10.1029/2019SW002356.
 6. Run all cells.
   
 ## Ephemeris files
-Download the following ephemeris files and put them in the Data folder:
+Download the following ephemeris files and put them in the Data folder (**Note: Update the ephemeris filenames in Data/kernel.txt to match the downloaded files.**):
 * latest_leapseconds.tls: https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/
 * de430.bsp: https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/
 * earthstns_itrf93_201023.bsp: https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/stations/
