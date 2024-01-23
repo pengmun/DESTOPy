@@ -320,10 +320,10 @@ def inputEOP_Celestrak_Full(EOPfilename):
     fid = open(EOPfilename, 'r');
     lines = fid.readlines()
 
-    nofObs = int(lines[32][20:25])
+    nofObs = int(lines[22][20:25])
 
     ## Read Earth Orientation Parameters
-    EOPMat = np.loadtxt(EOPfilename,skiprows=34,max_rows=nofObs)
+    EOPMat = np.loadtxt(EOPfilename,skiprows=24,max_rows=nofObs)
 
     return EOPMat.T
 
@@ -345,7 +345,7 @@ def readSOLFSMY(filename, startRow = 3, endRow = np.NaN):
     lines = fid.readlines()
 
     if np.isnan(endRow):
-        endRow = int(lines[1][22:26])
+        endRow = int(lines[1][22:27])
 
     SOLFSMY = np.genfromtxt(filename,skip_header=startRow,max_rows=endRow)
 
@@ -431,7 +431,7 @@ def inputEOP_Celestrak(EOPfilename):
     lines = file_EOP.readlines()
 
     # Read number of observed points
-    nofObs = int(lines[32][20:25])
+    nofObs = int(lines[22][20:25])
 
     # Initialize output
     EOPMat = np.zeros((nofObs,6));
@@ -440,22 +440,22 @@ def inputEOP_Celestrak(EOPfilename):
     for ind in range(1,nofObs+1):
 
         # Read PM-x
-        EOPMat[ind-1,0] = float(lines[33+ind][17:26]); # arcsec
+        EOPMat[ind-1,0] = float(lines[23+ind][17:26]); # arcsec
 
         # Read PM-y
-        EOPMat[ind-1,1] = float(lines[33+ind][27:36]); # arcsec
+        EOPMat[ind-1,1] = float(lines[23+ind][27:36]); # arcsec
 
         # Read UT1-UTC
-        EOPMat[ind-1,2] = float(lines[33+ind][37:47]);
+        EOPMat[ind-1,2] = float(lines[23+ind][37:47]);
 
         # Read length of day
-        EOPMat[ind-1,3] = float(lines[33+ind][48:58]);
+        EOPMat[ind-1,3] = float(lines[23+ind][48:58]);
 
         # Read dPsi
-        EOPMat[ind-1,4] = float(lines[33+ind][59:68]);  # arcsec
+        EOPMat[ind-1,4] = float(lines[23+ind][59:68]);  # arcsec
 
         # Read dEps
-        EOPMat[ind-1,5] = float(lines[33+ind][69:78]); # arcsec
+        EOPMat[ind-1,5] = float(lines[23+ind][69:78]); # arcsec
 
     EOPMat[np.isnan(EOPMat)] = 0;
     EOPMat[:,0:2] = EOPMat[:,0:2]/3600*np.pi/180; # rad
